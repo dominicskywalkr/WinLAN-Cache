@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 import signal
+import sys
 import time
 
 from lancache import LanCacheApplication, load_config
 from lancache.app import AppStartupError
 from lancache.config import save_config, set_cache_root_dir
-from lancache.gui import LanCacheGUI
-from lancache.service import handle_service_command
+from lancache.windows_runtime import ensure_pywin32
 from lancache.windows_dns import WindowsDNSManager
 
 
@@ -75,6 +75,8 @@ def run_console(config_path: str, cache_dir: str | None = None) -> None:
 
 
 def run_gui(config_path: str, cache_dir: str | None = None) -> None:
+	from lancache.gui import LanCacheGUI
+
 	config = load_runtime_config(config_path, cache_dir)
 	gui = LanCacheGUI(LanCacheApplication(config, config_path))
 	gui.run()
@@ -101,6 +103,12 @@ def apply_dns(config_path: str, cache_dir: str | None = None) -> None:
 
 
 def main() -> None:
+	if sys.platform.startswith("win"):
+		try:
+			ensure_pywin32()
+		except RuntimeError as exc:
+			raise SystemExit(str(exc)) from exc
+
 	args = build_parser().parse_args()
 	if args.command == "run":
 		run_console(args.config, args.cache_dir)
@@ -115,6 +123,8 @@ def main() -> None:
 		apply_dns(args.config, args.cache_dir)
 		return
 	if args.command == "service":
+		from lancache.service import handle_service_command
+
 		message = handle_service_command(args.service_action or "status", args.config, args.cache_dir)
 		if message:
 			print(message)
