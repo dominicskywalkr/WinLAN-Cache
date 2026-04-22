@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .blocked_ips import BlockedIPRegistry
 from .cache_storage import CacheEntry, CacheStore
 from .config import ProxyConfig
 from .metrics import MetricsCollector
@@ -56,14 +57,21 @@ class CacheProxyServer(http.server.ThreadingHTTPServer):
         router: DomainRouter,
         metrics: MetricsCollector,
         steam_clients: SteamClientTracker,
+        blocked_ips: BlockedIPRegistry,
     ) -> None:
         self.config = config
         self.cache = cache
         self.router = router
         self.metrics = metrics
         self.steam_clients = steam_clients
+        self.blocked_ips = blocked_ips
         self.logger = logging.getLogger(__name__)
         super().__init__(listen_address, CacheProxyHandler)
+
+    def verify_request(self, request, client_address) -> bool:
+        del request
+        client_ip = client_address[0] if client_address else None
+        return not self.blocked_ips.is_blocked(client_ip)
 
     def handle_http_method(self, handler: CacheProxyHandler, cacheable: bool) -> None:
         if self._is_health_check_request(handler):

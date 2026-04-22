@@ -10,14 +10,16 @@ from pathlib import Path
 
 from .app import AppStartupError, LanCacheApplication
 from .config import AppConfig, load_config, set_cache_root_dir
+from .windows_runtime import ensure_pywin32
 
-try:
+if sys.platform.startswith("win"):
+    ensure_pywin32()
     pywintypes = importlib.import_module("pywintypes")
     servicemanager = importlib.import_module("servicemanager")
     win32event = importlib.import_module("win32event")
     win32service = importlib.import_module("win32service")
     win32serviceutil = importlib.import_module("win32serviceutil")
-except ImportError:  # pragma: no cover - optional on non-Windows or without pywin32
+else:  # pragma: no cover - service support is Windows-only
     pywintypes = None
     servicemanager = None
     win32event = None
@@ -31,8 +33,9 @@ _SERVICE_CACHE_DIR: str | None = None
 
 
 def _require_pywin32() -> None:
-    if not all((pywintypes, servicemanager, win32event, win32service, win32serviceutil)):
-        raise RuntimeError("pywin32 is required for Windows service support")
+    if not sys.platform.startswith("win"):
+        raise RuntimeError("Windows service support is only available on Windows")
+    ensure_pywin32()
 
 
 def _load_service_config(config_path: str | Path, cache_dir: str | None = None) -> AppConfig:
@@ -86,7 +89,7 @@ class ServiceRunner:
         self._stop_event.set()
 
 
-if win32serviceutil:
+if sys.platform.startswith("win"):
     class LanCacheWindowsService(win32serviceutil.ServiceFramework):
         _svc_name_ = "WindowsLanCache"
         _svc_display_name_ = "Windows LAN Cache"

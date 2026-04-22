@@ -4,6 +4,7 @@ import logging
 import threading
 from pathlib import Path
 
+from .blocked_ips import BlockedIPRegistry
 from .cache_storage import CacheStore
 from .config import AppConfig, load_config, save_config
 from .dns_server import DNSInterceptorServer, DNSServerThread
@@ -35,6 +36,7 @@ class LanCacheApplication:
         self.metrics = MetricsCollector()
         self.router = DomainRouter(config.platform_policies)
         self.cache = CacheStore(config.cache)
+        self.blocked_ips = BlockedIPRegistry(config.blocked_ips.blocked_ips)
         self.steam_clients = SteamClientTracker()
         self.windows_dns = WindowsDNSManager(config)
         self.dns_server: DNSInterceptorServer | None = None
@@ -56,7 +58,13 @@ class LanCacheApplication:
 
     def _build_runtime(self) -> None:
         try:
-            dns_server = DNSInterceptorServer(self.config.dns, self.router, self.metrics, self.steam_clients)
+            dns_server = DNSInterceptorServer(
+                self.config.dns,
+                self.router,
+                self.metrics,
+                self.steam_clients,
+                self.blocked_ips,
+            )
         except OSError as exc:
             raise self._build_bind_error("DNS", self.config.dns.listen_host, self.config.dns.listen_port, exc) from exc
 
@@ -68,6 +76,7 @@ class LanCacheApplication:
                 self.router,
                 self.metrics,
                 self.steam_clients,
+                self.blocked_ips,
             )
         except OSError as exc:
             dns_server.server_close()

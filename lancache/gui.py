@@ -9,6 +9,7 @@ from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 from .app import LanCacheApplication
+from .blocked_ips import BlockedIPRegistry
 from .config import PlatformPolicy, SteamPreloadItem, config_from_dict, config_to_dict, default_platform_policies, set_cache_root_dir
 from .preload import CachePreloader
 from .service import handle_service_command
@@ -28,6 +29,7 @@ class LanCacheGUI:
         self.message_var = tk.StringVar(value="Ready")
         self.cache_dir_var = tk.StringVar(value="")
         self.steamcmd_path_var = tk.StringVar(value="")
+        self.blocked_ip_entry_var = tk.StringVar(value="")
         self.preload_name_var = tk.StringVar(value="")
         self.preload_app_id_var = tk.StringVar(value="")
         self.settings_dns_listen_host_var = tk.StringVar(value="")
@@ -94,12 +96,14 @@ class LanCacheGUI:
 
         main_tab = ttk.Frame(notebook, padding=8)
         clients_tab = ttk.Frame(notebook, padding=8)
+        blocked_ips_tab = ttk.Frame(notebook, padding=8)
         settings_tab = ttk.Frame(notebook, padding=8)
         config_tab = ttk.Frame(notebook, padding=8)
         preload_tab = ttk.Frame(notebook, padding=8)
         metrics_tab = ttk.Frame(notebook, padding=8)
         notebook.add(main_tab, text="Main")
         notebook.add(clients_tab, text="Steam Clients")
+        notebook.add(blocked_ips_tab, text="Blocked IPs")
         notebook.add(config_tab, text="Config")
         notebook.add(preload_tab, text="Steam Preload")
         notebook.add(metrics_tab, text="Metrics")
@@ -154,6 +158,8 @@ class LanCacheGUI:
         clients_tree.column("host", width=360, anchor=tk.W)
         clients_tree.pack(fill=tk.BOTH, expand=True)
         self.clients_tree = clients_tree
+
+        self._build_blocked_ips_tab(blocked_ips_tab)
 
         self._build_settings_tab(settings_tab)
 
@@ -233,7 +239,15 @@ class LanCacheGUI:
         metrics_box.configure(state=tk.DISABLED)
         self.metrics_box = metrics_box
 
-        for widget in (self.games_tree, self.clients_tree, self.config_box, self.preload_tree, self.preload_log, self.metrics_box):
+        for widget in (
+            self.games_tree,
+            self.clients_tree,
+            self.blocked_ips_tree,
+            self.config_box,
+            self.preload_tree,
+            self.preload_log,
+            self.metrics_box,
+        ):
             self._bind_widget_mousewheel(widget, self._build_yview_scroll_handler(widget))
 
         self.reload_config_text()
@@ -594,6 +608,29 @@ class LanCacheGUI:
         content.columnconfigure(0, weight=1)
         self._bind_mousewheel_recursively(settings_tab, self._build_yview_scroll_handler(canvas))
 
+    def _build_blocked_ips_tab(self, blocked_ips_tab: ttk.Frame) -> None:
+        ttk.Label(blocked_ips_tab, text="Blocked Client IP Addresses", font=("Segoe UI", 12, "bold")).pack(anchor=tk.W)
+        ttk.Label(
+            blocked_ips_tab,
+            text="Blocked clients are dropped at the DNS and proxy server boundary, so their traffic is not forwarded and does not appear in the runtime request logs.",
+            wraplength=1000,
+        ).pack(anchor=tk.W, pady=(4, 8))
+
+        form_row = ttk.Frame(blocked_ips_tab)
+        form_row.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(form_row, text="IP address").pack(side=tk.LEFT)
+        blocked_ip_entry = ttk.Entry(form_row, textvariable=self.blocked_ip_entry_var)
+        blocked_ip_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 8))
+        blocked_ip_entry.bind("<Return>", self.add_blocked_ip)
+        ttk.Button(form_row, text="Add", command=self.add_blocked_ip).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(form_row, text="Remove Selected", command=self.remove_selected_blocked_ip).pack(side=tk.LEFT)
+
+        blocked_ips_tree = ttk.Treeview(blocked_ips_tab, columns=("ip",), show="headings", height=16)
+        blocked_ips_tree.heading("ip", text="Blocked IP")
+        blocked_ips_tree.column("ip", width=280, anchor=tk.W)
+        blocked_ips_tree.pack(fill=tk.BOTH, expand=True)
+        self.blocked_ips_tree = blocked_ips_tree
+
     def _add_settings_entry(
         self,
         parent: ttk.LabelFrame,
@@ -660,6 +697,86 @@ class LanCacheGUI:
         self._bind_widget_mousewheel(root_widget, handler)
         for child in root_widget.winfo_children():
             self._bind_mousewheel_recursively(child, handler)
+
+    def _selected_blocked_ip(self) -> str | None:
+        selection = self.blocked_ips_tree.selection()
+        if not selection:
+            return None
+        item = self.blocked_ips_tree.item(selection[0])
+        values = item.get("values") or []
+        if not values:
+            return None
+        return str(values[0])
+
+    def _refresh_blocked_ips(self, blocked_ips: list[str]) -> None:
+        selected_ip = self._selected_blocked_ip()
+        self.blocked_ips_tree.delete(*self.blocked_ips_tree.get_children())
+        selected_item_id = None
+        for blocked_ip in blocked_ips:
+            item_id = self.blocked_ips_tree.insert("", tk.END, values=(blocked_ip,))
+            if blocked_ip == selected_ip:
+                selected_item_id = item_id
+        if selected_item_id is not None:
+            self.blocked_ips_tree.selection_set(selected_item_id)
+
+    def _apply_blocked_ip_changes(self, config) -> None:
+        blocked_ips = sorted(config.blocked_ips.blocked_ips)
+        config.blocked_ips.blocked_ips = blocked_ips
+        self.app.config.blocked_ips.blocked_ips = list(blocked_ips)
+        self.app.blocked_ips.replace_all(blocked_ips)
+        self.app.save_config(config)
+
+    def add_blocked_ip(self, event=None):
+        del event
+        raw_ip = self.blocked_ip_entry_var.get()
+        try:
+            normalized_ip = BlockedIPRegistry.normalize_ip(raw_ip)
+            config = self._parse_editor_config()
+        except Exception as exc:
+            messagebox.showerror("Blocked IPs", str(exc))
+            return "break"
+
+        blocked_ips = set(config.blocked_ips.blocked_ips)
+        if normalized_ip in blocked_ips:
+            self.message_var.set(f"{normalized_ip} is already blocked")
+            return "break"
+
+        blocked_ips.add(normalized_ip)
+        config.blocked_ips.blocked_ips = sorted(blocked_ips)
+        try:
+            self._apply_blocked_ip_changes(config)
+        except Exception as exc:
+            messagebox.showerror("Blocked IPs", str(exc))
+            return "break"
+        self._set_editor_config(config)
+        self.blocked_ip_entry_var.set("")
+        self.message_var.set(f"Blocked {normalized_ip}")
+        return "break"
+
+    def remove_selected_blocked_ip(self) -> None:
+        selected_ip = self._selected_blocked_ip()
+        if not selected_ip:
+            messagebox.showerror("Blocked IPs", "Select an IP address to remove")
+            return
+        try:
+            normalized_ip = BlockedIPRegistry.normalize_ip(selected_ip)
+            config = self._parse_editor_config()
+        except Exception as exc:
+            messagebox.showerror("Blocked IPs", str(exc))
+            return
+
+        config.blocked_ips.blocked_ips = [
+            blocked_ip
+            for blocked_ip in config.blocked_ips.blocked_ips
+            if blocked_ip != normalized_ip
+        ]
+        try:
+            self._apply_blocked_ip_changes(config)
+        except Exception as exc:
+            messagebox.showerror("Blocked IPs", str(exc))
+            return
+        self._set_editor_config(config)
+        self.message_var.set(f"Unblocked {normalized_ip}")
 
     def _parse_int_setting(self, label: str, raw_value: str, *, minimum: int | None = None, maximum: int | None = None) -> int:
         value_text = raw_value.strip()
@@ -1038,6 +1155,8 @@ class LanCacheGUI:
         self.settings_windows_dns_server_host_var.set(config.windows_dns.server_host)
         self.settings_windows_dns_apply_on_start_var.set(config.windows_dns.apply_on_start)
         self.settings_windows_dns_script_path_var.set(config.windows_dns.script_path)
+        self.blocked_ip_entry_var.set("")
+        self._refresh_blocked_ips(config.blocked_ips.blocked_ips)
         self.steamcmd_path_var.set(config.steamcmd.executable_path)
         selected_name = self._selected_preload_name()
         self.preload_tree.delete(*self.preload_tree.get_children())

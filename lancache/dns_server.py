@@ -5,6 +5,7 @@ import socket
 import socketserver
 import threading
 
+from .blocked_ips import BlockedIPRegistry
 from .config import DNSConfig
 from .dns_protocol import TYPE_A, TYPE_AAAA, build_address_response, parse_query
 from .metrics import MetricsCollector
@@ -28,13 +29,20 @@ class DNSInterceptorServer(socketserver.ThreadingUDPServer):
         router: DomainRouter,
         metrics: MetricsCollector,
         steam_clients: SteamClientTracker,
+        blocked_ips: BlockedIPRegistry,
     ) -> None:
         self.config = config
         self.router = router
         self.metrics = metrics
         self.steam_clients = steam_clients
+        self.blocked_ips = blocked_ips
         self.logger = logging.getLogger(__name__)
         super().__init__((config.listen_host, config.listen_port), _DNSHandler)
+
+    def verify_request(self, request, client_address) -> bool:
+        del request
+        client_ip = client_address[0] if client_address else None
+        return not self.blocked_ips.is_blocked(client_ip)
 
     def handle_request(self, payload: bytes, client_address: tuple[str, int] | None = None) -> bytes:
         try:

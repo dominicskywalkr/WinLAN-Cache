@@ -4,6 +4,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .blocked_ips import BlockedIPConfig
+
 
 @dataclass(slots=True)
 class PlatformPolicy:
@@ -134,6 +136,7 @@ class AppConfig:
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     windows_dns: WindowsDNSConfig = field(default_factory=WindowsDNSConfig)
+    blocked_ips: BlockedIPConfig = field(default_factory=BlockedIPConfig)
     platform_policies: list[PlatformPolicy] = field(default_factory=default_platform_policies)
     steam_preload_items: list[SteamPreloadItem] = field(default_factory=list)
 
@@ -185,6 +188,7 @@ def _build_config(raw: dict) -> AppConfig:
         safety=SafetyConfig(**raw.get("safety", {})),
         network=NetworkConfig(**raw.get("network", {})),
         windows_dns=WindowsDNSConfig(**raw.get("windows_dns", {})),
+        blocked_ips=BlockedIPConfig(**raw.get("blocked_ips", {})),
         platform_policies=_build_platform_policies(raw),
         steam_preload_items=_build_steam_preload_items(raw),
     )
