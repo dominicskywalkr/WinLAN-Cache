@@ -11,6 +11,8 @@ from lancache.config import save_config, set_cache_root_dir
 from lancache.windows_runtime import ensure_pywin32
 from lancache.windows_dns import WindowsDNSManager
 
+# Application version. Update this when creating releases.
+__version__ = "1.0 beta 2"
 
 def build_parser() -> argparse.ArgumentParser:
 	parser = argparse.ArgumentParser(description="Windows LAN Cache")
@@ -78,7 +80,7 @@ def run_gui(config_path: str, cache_dir: str | None = None) -> None:
 	from lancache.gui import LanCacheGUI
 
 	config = load_runtime_config(config_path, cache_dir)
-	gui = LanCacheGUI(LanCacheApplication(config, config_path))
+	gui = LanCacheGUI(LanCacheApplication(config, config_path), version=__version__)
 	gui.run()
 
 
