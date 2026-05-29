@@ -50,8 +50,23 @@ class DNSInterceptorServer(socketserver.ThreadingUDPServer):
         except Exception as exc:
             self.logger.warning("Dropping malformed DNS query: %s", exc)
             return b""
-
         decision = self.router.resolve_dns(query.hostname)
+        # Optional per-query logging for debugging unexpected DNS traffic
+        try:
+            if getattr(self.config, "log_queries", False):
+                client_ip = client_address[0] if client_address else "unknown"
+                qtype_name = "A" if query.qtype == TYPE_A else ("AAAA" if query.qtype == TYPE_AAAA else str(query.qtype))
+                self.logger.info(
+                    "DNS query from %s for %s (%s) -> action=%s platform=%s",
+                    client_ip,
+                    query.hostname,
+                    qtype_name,
+                    decision.action,
+                    decision.platform,
+                )
+        except Exception:
+            # Protect the DNS path from logging failures
+            pass
         if decision.platform != "generic" and client_address is not None:
             self.steam_clients.record_activity(client_address[0], query.hostname, source=f"dns/{decision.platform}")
         if decision.action == "rewrite" and query.qtype in {TYPE_A, TYPE_AAAA}:

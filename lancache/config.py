@@ -68,6 +68,7 @@ class DNSConfig:
     response_ttl: int = 60
     cache_ipv4: str = "127.0.0.1"
     cache_ipv6: str | None = None
+    log_queries: bool = False
 
 
 @dataclass(slots=True)

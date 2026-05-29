@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import socket
 import subprocess
+import sys
 import threading
 import tkinter as tk
 from datetime import datetime
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .app import LanCacheApplication
@@ -20,11 +22,29 @@ PLATFORM_PRESET_NAMES = ("steam", "epic", "blizzard")
 
 
 class LanCacheGUI:
-    def __init__(self, app: LanCacheApplication) -> None:
+    def __init__(self, app: LanCacheApplication, version: str | None = None) -> None:
         self.app = app
+        self.version = version
         self.root = tk.Tk()
+        
+        # Set window icon - works both in source and PyInstaller bundle
+        if getattr(sys, 'frozen', False):
+            # Running as PyInstaller bundle
+            base_path = Path(sys._MEIPASS)
+        else:
+            # Running from source
+            base_path = Path(__file__).parent.parent
+        
+        icon_path = base_path / "old joystick icon.ico"
+        if icon_path.exists():
+            try:
+                self.root.iconbitmap(str(icon_path))
+            except tk.TclError:
+                pass  # Icon file format not supported on this platform
+        
         self.root.geometry("1100x760")
-        self.title_var = tk.StringVar(value="Windows LAN Cache")
+        title = self._build_title_text(version=self.version)
+        self.title_var = tk.StringVar(value=title)
         self.status_var = tk.StringVar(value="Stopped")
         self.message_var = tk.StringVar(value="Ready")
         self.cache_dir_var = tk.StringVar(value="")
@@ -124,7 +144,7 @@ class LanCacheGUI:
         games_tree.heading("name", text="Game")
         games_tree.heading("app_id", text="App ID")
         games_tree.heading("installed", text="First Installed")
-        games_tree.heading("downloads", text="Client Downloads")
+        games_tree.heading("downloads", text="Client Requests")
         games_tree.column("name", width=340, anchor=tk.W)
         games_tree.column("app_id", width=110, anchor=tk.CENTER)
         games_tree.column("installed", width=210, anchor=tk.CENTER)
@@ -256,8 +276,10 @@ class LanCacheGUI:
         self._refresh_metrics()
 
     @staticmethod
-    def _build_title_text(ip_address: str | None = None) -> str:
+    def _build_title_text(ip_address: str | None = None, version: str | None = None) -> str:
         base_title = "Windows LAN Cache"
+        if version:
+            base_title = f"{base_title} {version}"
         if not ip_address or ip_address.startswith("127."):
             return base_title
         return f"{base_title} ({ip_address})"
@@ -414,7 +436,7 @@ class LanCacheGUI:
         return str(self._network_interfaces[0].get("alias") or "") or None
 
     def _update_window_title(self, ip_address: str | None) -> None:
-        title_text = self._build_title_text(ip_address)
+        title_text = self._build_title_text(ip_address, self.version)
         self.title_var.set(title_text)
         self.root.title(title_text)
 
